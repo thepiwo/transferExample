@@ -19,13 +19,14 @@ if (process.env.NODE_ENV !== 'production') {
 const TOKEN_CONTRACT = process.env.NODE_TOKEN_CONTRACT;
 const WEB3_URL = process.env.NODE_WEB3_URL || args.n;
 const SIZE_CHECKER = process.env.NODE_SIZE_CHECKER;
+const DEFAULT_START_BLOCK = Number(process.env.NODE_START_BLOCK) || 7845358; //28-05-2019
 
 if (WEB3_URL == null) {
     console.log("No valid Ethereum node found in .env file ('NODE_WEB3_URL'), please provide one with -n flag, like \n $ node remaining_balances-CP-JSON.js -n wss://mainnet.infura.io/ws/v3/*YourAPIkey*");
     process.exit();
 }
 
-var provider = new Web3.providers.WebsocketProvider('ws://34.250.224.24:8546', {
+var provider = new Web3.providers.WebsocketProvider(WEB3_URL, {
     clientConfig: {
         maxReceivedFrameSize: 100000000,
         maxReceivedMessageSize: 100000000
@@ -60,9 +61,10 @@ startSearching();
 var addressPromises = [];
 var balancePromises = [];
 async function startSearching() {
-    var fromBlock = 7845358 
-    var toBlock = 8472764
-
+    var fromBlock = args.f == null ? DEFAULT_START_BLOCK : args.f;
+    let latest = 8472764 // 02-09-2019
+    var toBlock = args.t == null ? latest  : args.t;
+    
     if (fromBlock > toBlock) {
         console.log(`${timestamp('DD.MM.YYYY : HH:mm.ss')} ` + "Invalid start and/or end block!");
         process.exit(1);
@@ -90,7 +92,7 @@ async function startSearching() {
                     returnValues: events[i].returnValues,
                 }
                 
-                if (to == process.env.NODE_TOKEN_CONTRACT) {// if the recipent is not the token burner
+                if (to == process.env.NODE_TOKEN_CONTRACT) { //the recipient should be the token conract
                         addressPromises.push(new Promise(async (resolve) => {
                             try {
                                 let isContact = await SizeChecker.methods.isContract(to).call();
