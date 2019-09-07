@@ -99,7 +99,6 @@ async function startSearching() {
                                 if (isContact) {
                                     console.log("Found holder: " + from + ", current block: " + blockNumber);
                                     addresses.push(from);
-                                    //startChecking(from, events[i]);
                                     db.set(counter, eventDetails).write();
                                     counter++;
                                 }
@@ -112,7 +111,6 @@ async function startSearching() {
                                 throw error;
                             }
                         }));
-                    // }
                 }
             }
 
