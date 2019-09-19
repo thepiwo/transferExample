@@ -3,6 +3,9 @@ logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+burnAccounts.json
+toERC20TransferEvent.json
+
 
 # Runtime data
 pids

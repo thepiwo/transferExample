@@ -4,11 +4,14 @@ const Web3 = require("web3")
 const fs = require('fs');
 const timestamp = require('time-stamp');
 const abi = require('human-standard-token-abi');
+const burnerAbi = require('./tokenBurnerAbi.json')
 
 const low = require('lowdb')
 const FileSync = require('lowdb/adapters/FileSync')
 const adapter = new FileSync('toERC20TransferEvent.json')
+const burnAccounts = new FileSync('burnAccounts.txt')
 const db = low(adapter);
+const db3 = low(burnAccounts)
 
 const args = require('minimist')(process.argv.slice(2));
 
@@ -16,9 +19,10 @@ if (process.env.NODE_ENV !== 'production') {
     require('dotenv').config()
 }
 
-const TOKEN_CONTRACT = process.env.NODE_TOKEN_CONTRACT;
+const TOKEN_CONTRACT = "0x5ca9a71b1d01849c0a95490cc00559717fcf0d1d";
+const TOKEN_BURN_CONTRACT = "0x8a3B7094e1D80C8366B4687cB85862311C931C52"
 const WEB3_URL = process.env.NODE_WEB3_URL || args.n;
-const SIZE_CHECKER = process.env.NODE_SIZE_CHECKER;
+const SIZE_CHECKER = "0x52b034d64f150b9d6d39b9a9b9177d8a202e3f3e";
 const DEFAULT_START_BLOCK = Number(process.env.NODE_START_BLOCK) || 7845358; //28-05-2019
 
 if (WEB3_URL == null) {
@@ -51,20 +55,38 @@ provider.on('end', error => {
     web3 = new Web3(provider)
 });
 
+
 const AEToken = new web3.eth.Contract(abi, TOKEN_CONTRACT);
-const SizeChecker = new web3.eth.Contract([{ "constant": true, "inputs": [{ "name": "addr", "type": "address" }], "name": "isContract", "outputs": [{ "name": "", "type": "bool" }], "payable": false, "stateMutability": "view", "type": "function" }], SIZE_CHECKER);
+const BurnerContract = new web3.eth.Contract(burnerAbi, TOKEN_BURN_CONTRACT)
+const SizeChecker = new web3.eth.Contract([{
+    "constant": true,
+    "inputs": [{
+        "name": "addr",
+        "type": "address"
+    }],
+    "name": "isContract",
+    "outputs": [{
+        "name": "",
+        "type": "bool"
+    }],
+    "payable": false,
+    "stateMutability": "view",
+    "type": "function"
+}], SIZE_CHECKER);
 var eventPromises = [];
+var eventPromisesBurn = [];
 let counter = 0;
 console.log("START: " + new Date());
 
 startSearching();
 var addressPromises = [];
 var balancePromises = [];
+var burnPromises = []
 async function startSearching() {
     var fromBlock = args.f == null ? DEFAULT_START_BLOCK : args.f;
     let latest = 8472764 // 02-09-2019
-    var toBlock = args.t == null ? latest  : args.t;
-    
+    var toBlock = args.t == null ? latest : args.t;
+
     if (fromBlock > toBlock) {
         console.log(`${timestamp('DD.MM.YYYY : HH:mm.ss')} ` + "Invalid start and/or end block!");
         process.exit(1);
@@ -73,8 +95,63 @@ async function startSearching() {
     let currentBlock = fromBlock;
 
     while (currentBlock < toBlock) {
+
+        console.log("Starting searching... block for burner events " + currentBlock);
+        let eventPromiseBurn = BurnerContract.getPastEvents("Burn", {
+            fromBlock: currentBlock,
+            toBlock: currentBlock + 1000
+        });
+
+        eventPromisesBurn.push(eventPromiseBurn)
+
+        eventPromiseBurn.then(async (events) => {
+            console.log("Found " + events.length + "  burn events");
+            let BurnEvenets = [];
+            for (var i = 0; i < events.length; i++) {
+                let to = events[i].returnValues._to;
+                let from = events[i].returnValues._from;
+                let blockNumber = events[i].blockNumber;
+                let eventDetails = {
+                    blockHash: events[i].blockHash,
+                    blockNumber: events[i].blockNumber,
+                    transactionHash: events[i].transactionHash,
+                    event: events[i].event,
+                    returnValues: events[i].returnValues,
+                }
+
+                burnPromises.push(new Promise(async (resolve) => {
+                    try {
+                        let isContact = await SizeChecker.methods.isContract(from).call();
+                        if (!isContact) {
+                            console.log("Found holder: " + from + ", current block: " + blockNumber);
+                            BurnEvenets.push(eventDetails);
+                            db3.set(counter, eventDetails).write()
+                            counter++;
+                        }
+                        return resolve();
+                    } catch (error) {
+                        console.log(`${timestamp('DD.MM.YYYY : HH:mm.ss')} ` + "Error checking account type: ");
+                        console.log(error)
+                        fs.appendFileSync("./error.log", error + "\nBLOCK: " + blockNumber + "\nACCOUNT: " + to);
+                        resolve();
+                        throw error;
+                    }
+                }));
+            }
+
+
+
+        }).catch((error) => {
+            console.log(`${timestamp('DD.MM.YYYY : HH:mm.ss')} ` + "Error fetching transfer events: ");
+            fs.appendFileSync("./error.log", error + "\nBLOCK: " + cb);
+            throw error;
+        })
+
         console.log("Starting searching... block " + currentBlock);
-        let eventPromise = AEToken.getPastEvents("Transfer", { fromBlock: currentBlock, toBlock: currentBlock + 1000 });
+        let eventPromise = AEToken.getPastEvents("Transfer", {
+            fromBlock: currentBlock,
+            toBlock: currentBlock + 1000
+        });
         eventPromises.push(eventPromise);
         let cb = currentBlock;
         eventPromise.then(async (events) => {
@@ -91,26 +168,25 @@ async function startSearching() {
                     event: events[i].event,
                     returnValues: events[i].returnValues,
                 }
-                
-                if (to == process.env.NODE_TOKEN_CONTRACT) { //the recipient should be the token conract
-                        addressPromises.push(new Promise(async (resolve) => {
-                            try {
-                                let isContact = await SizeChecker.methods.isContract(to).call();
-                                if (isContact) {
-                                    console.log("Found holder: " + from + ", current block: " + blockNumber);
-                                    addresses.push(from);
-                                    db.set(counter, eventDetails).write();
-                                    counter++;
-                                }
-                                return resolve();
-                            } catch (error) {
-                                console.log(`${timestamp('DD.MM.YYYY : HH:mm.ss')} ` + "Error checking account type: ");
-                                console.log(error)
-                                fs.appendFileSync("./error.log", error + "\nBLOCK: " + blockNumber + "\nACCOUNT: " + to);
-                                resolve();
-                                throw error;
+                if (to == 0x8a3B7094e1D80C8366B4687cB85862311C931C52) { //the recipient should be the token conract
+                    addressPromises.push(new Promise(async (resolve) => {
+                        try {
+                            let isContact = await SizeChecker.methods.isContract(from).call();
+                            if (!isContact) {
+                                console.log("Found holder: " + from + ", current block: " + blockNumber);
+                                addresses.push(from);
+                                db.set(counter, eventDetails).write();
+                                counter++;
                             }
-                        }));
+                            return resolve();
+                        } catch (error) {
+                            console.log(`${timestamp('DD.MM.YYYY : HH:mm.ss')} ` + "Error checking account type: ");
+                            console.log(error)
+                            fs.appendFileSync("./error.log", error + "\nBLOCK: " + blockNumber + "\nACCOUNT: " + to);
+                            resolve();
+                            throw error;
+                        }
+                    }));
                 }
             }
 
@@ -124,10 +200,7 @@ async function startSearching() {
     await Promise.all(eventPromises);
     await Promise.all(addressPromises);
     await Promise.all(balancePromises);
+    await Promise.all(burnPromises);
     console.log("END: " + new Date());
     process.exit(0);
 }
-
-
-   
-
