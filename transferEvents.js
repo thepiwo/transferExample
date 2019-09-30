@@ -196,11 +196,13 @@ async function startSearching() {
             fs.appendFileSync("./error.log", error + "\nBLOCK: " + cb);
             throw error;
         })
+        await Promise.all(eventPromises);
+        await Promise.all(eventPromisesBurn);
+        await Promise.all(burnPromises);
+        await Promise.all(addressPromises);
         currentBlock += 1000;
     }
-    await Promise.all(eventPromises);
-    await Promise.all(eventPromiseBurn);
-    await Promise.all(burnPromises);
+
     console.log("END: " + new Date());
     process.exit(0);
 }
