@@ -9,7 +9,7 @@ const burnerAbi = require('./tokenBurnerAbi.json')
 const low = require('lowdb')
 const FileSync = require('lowdb/adapters/FileSync')
 const adapter = new FileSync('toERC20TransferEvent.json')
-const burnAccounts = new FileSync('burnAccounts.txt')
+const burnAccounts = new FileSync('burnAccounts.json')
 const db = low(adapter);
 const db3 = low(burnAccounts)
 
@@ -23,7 +23,7 @@ const TOKEN_CONTRACT = "0x5ca9a71b1d01849c0a95490cc00559717fcf0d1d";
 const TOKEN_BURN_CONTRACT = "0x8a3B7094e1D80C8366B4687cB85862311C931C52"
 const WEB3_URL = process.env.NODE_WEB3_URL || args.n;
 const SIZE_CHECKER = "0x52b034d64f150b9d6d39b9a9b9177d8a202e3f3e";
-const DEFAULT_START_BLOCK = Number(process.env.NODE_START_BLOCK) || 7845358; //28-05-2019
+const DEFAULT_START_BLOCK = Number(process.env.NODE_START_BLOCK) || 4231524; //28-05-2019
 
 if (WEB3_URL == null) {
     console.log("No valid Ethereum node found in .env file ('NODE_WEB3_URL'), please provide one with -n flag, like \n $ node remaining_balances-CP-JSON.js -n wss://mainnet.infura.io/ws/v3/*YourAPIkey*");
@@ -84,7 +84,7 @@ var balancePromises = [];
 var burnPromises = []
 async function startSearching() {
     var fromBlock = args.f == null ? DEFAULT_START_BLOCK : args.f;
-    let latest = 8472764 // 02-09-2019
+    let latest = 8472764 // when the ERC20 contract was deployed
     var toBlock = args.t == null ? latest : args.t;
 
     if (fromBlock > toBlock) {
@@ -96,7 +96,7 @@ async function startSearching() {
 
     while (currentBlock < toBlock) {
 
-        console.log("Starting searching... block for burner events " + currentBlock);
+        console.log("Starting searching or burner events... block  " + currentBlock);
         let eventPromiseBurn = BurnerContract.getPastEvents("Burn", {
             fromBlock: currentBlock,
             toBlock: currentBlock + 1000
@@ -123,7 +123,7 @@ async function startSearching() {
                     try {
                         let isContact = await SizeChecker.methods.isContract(from).call();
                         if (!isContact) {
-                            console.log("Found holder: " + from + ", current block: " + blockNumber);
+                            console.log("Found holder: " + from + ", current block: " + blockNumber + "Event: Burn");
                             BurnEvenets.push(eventDetails);
                             db3.set(counter, eventDetails).write()
                             counter++;
@@ -147,7 +147,7 @@ async function startSearching() {
             throw error;
         })
 
-        console.log("Starting searching... block " + currentBlock);
+        console.log("Starting searching for transfer... block " + currentBlock);
         let eventPromise = AEToken.getPastEvents("Transfer", {
             fromBlock: currentBlock,
             toBlock: currentBlock + 1000
@@ -157,6 +157,7 @@ async function startSearching() {
         eventPromise.then(async (events) => {
             console.log("Found " + events.length + "  transfer events");
             let addresses = [];
+            let burnCounter = 0
             for (var i = 0; i < events.length; i++) {
                 let to = events[i].returnValues._to;
                 let from = events[i].returnValues._from;
@@ -173,10 +174,10 @@ async function startSearching() {
                         try {
                             let isContact = await SizeChecker.methods.isContract(from).call();
                             if (!isContact) {
-                                console.log("Found holder: " + from + ", current block: " + blockNumber);
+                                console.log("Found holder: " + from + ", current block: " + blockNumber + "Event: Transfer");
                                 addresses.push(from);
-                                db.set(counter, eventDetails).write();
-                                counter++;
+                                db.set(burnCounter, eventDetails).write();
+                                burnCounter++;
                             }
                             return resolve();
                         } catch (error) {
@@ -198,8 +199,7 @@ async function startSearching() {
         currentBlock += 1000;
     }
     await Promise.all(eventPromises);
-    await Promise.all(addressPromises);
-    await Promise.all(balancePromises);
+    await Promise.all(eventPromiseBurn);
     await Promise.all(burnPromises);
     console.log("END: " + new Date());
     process.exit(0);
