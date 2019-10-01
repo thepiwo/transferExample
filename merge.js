@@ -1,14 +1,25 @@
 const fs = require("fs");
 const BigNumber = require("bignumber.js");
 
-const accountsLeft = JSON.parse(fs.readFileSync("./db-infura-sorted.json", "utf8"));
-const toBurnContract = JSON.parse(fs.readFileSync("./nonBurnTransfersToBurnContract.json", "utf8"));
-const toTokenContract = JSON.parse(fs.readFileSync("./transferEventsToTokenContract.json", "utf8"));
+const accountsLeftJson = JSON.parse(fs.readFileSync("./db-infura-sorted.json", "utf8"));
+const accountsLeft = {};
+Object.keys(accountsLeftJson).map(function (key) {
+    accountsLeft[key.toUpperCase()] = accountsLeftJson[key];
+});
+const toBurnContractJson = JSON.parse(fs.readFileSync("./nonBurnTransfersToBurnContract.json", "utf8"));
+const toBurnContract = {};
+Object.keys(toBurnContractJson).map(function (key) {
+    toBurnContract[key.toUpperCase()] = toBurnContractJson[key];
+});
+const toTokenContractJson = JSON.parse(fs.readFileSync("./transferEventsToTokenContract.json", "utf8"));
+const toTokenContract = {};
+Object.keys(toTokenContractJson).map(function (key) {
+    toTokenContract[key.toUpperCase()] = toTokenContractJson[key];
+});
 
 console.log(Object.keys(accountsLeft).length, Object.keys(toBurnContract).length, Object.keys(toTokenContract).length);
 
-
-const accounts = Object.keys(accountsLeft).concat(Object.keys(toBurnContract)).concat(Object.keys(toTokenContract));
+const accounts = [...new Set(Object.keys(accountsLeft).concat(Object.keys(toBurnContract)).concat(Object.keys(toTokenContract)))];
 const allAccounts = accounts.reduce((acc, cur) => {
     const prev = new BigNumber(acc[cur] ? acc[cur] : 0);
 
@@ -16,7 +27,8 @@ const allAccounts = accounts.reduce((acc, cur) => {
     const toBurnContractTokens = new BigNumber(toBurnContract[cur] ? toBurnContract[cur] : 0);
     const toTokenContractTokens = new BigNumber(toTokenContract[cur] ? toTokenContract[cur] : 0);
 
-    acc[cur] = prev.plus(accountsLeftTokens).plus(toBurnContractTokens).plus(toTokenContractTokens).toFixed();
+    const sum = prev.plus(accountsLeftTokens).plus(toBurnContractTokens).plus(toTokenContractTokens);
+    if (!sum.isZero()) acc[cur] = sum.toFixed();
     return acc;
 }, {});
 
